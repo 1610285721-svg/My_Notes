@@ -1,0 +1,34 @@
+# GitHub Actions 自动部署配置
+# 每次 git push 到 master 分支，GitHub 会自动：
+#   1. 拉取代码
+#   2. npm install && npm run build（编译项目）
+#   3. 把 dist 目录部署到 GitHub Pages
+name: 部署到 GitHub Pages
+
+on:
+  push:
+    branches: [master]       # 推送到 master 分支时触发
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 编译项目
+        run: npm run build
+
+      - name: 部署到 GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist             # 部署 dist 目录
+          branch: gh-pages         # 部署到 gh-pages 分支
