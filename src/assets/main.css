@@ -1,0 +1,12 @@
+/* ============================================================
+   全局样式 —— 笔记应用
+   使用 Element Plus 作为 UI 组件库，这里只写少量自定义样式
+   ============================================================ */
+
+/* 重置默认边距，让页面撑满整个窗口 */
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
