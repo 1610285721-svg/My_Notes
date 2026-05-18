@@ -787,7 +787,7 @@ onMounted(async () => {
   // 本地开发时如果没放 notes.json，fetch 会失败，走 catch
   let remoteNotes = []
   try {
-    const res = await fetch(import.meta.env.BASE_URL + 'notes.json')
+    const res = await fetch('notes.json')
     if (res.ok) remoteNotes = await res.json()
   } catch {
     // notes.json 不存在（本地开发时），忽略，后面用 localStorage
