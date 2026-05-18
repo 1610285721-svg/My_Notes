@@ -775,29 +775,64 @@ watch(
  *   4. 恢复编辑模式状态（上次退出时是不是在编辑模式）
  *   5. 注册页面关闭事件，关闭前做最后一次保存
  */
-onMounted(() => {
-  // ====== 1. 加载笔记 ======
-  notes.value = loadNotes()
+/*
+ * 页面初始化（应用启动时执行一次）
+ * 加载顺序：先读 notes.json（部署后有数据）→ 读 localStorage（本地编辑的数据）→ 合并
+ * 编辑过的笔记以 localStorage 为准，没编辑过的以 notes.json 为准
+ */
+onMounted(async () => {
 
-  // ====== 2. 兼容旧数据：没有 module 字段的笔记补上默认分类 ======
+  // ====== 1. 尝试从服务器加载 notes.json ======
+  // 部署后 /notes.json 在 public 目录下，别人访问时能读到
+  // 本地开发时如果没放 notes.json，fetch 会失败，走 catch
+  let remoteNotes = []
+  try {
+    const res = await fetch('/notes.json')
+    if (res.ok) remoteNotes = await res.json()
+  } catch {
+    // notes.json 不存在（本地开发时），忽略，后面用 localStorage
+  }
+
+  // ====== 2. 加载本地 localStorage 中的笔记 ======
+  const localNotes = loadNotes()
+
+  // ====== 3. 合并数据：remote 是基础，local 里更新过的笔记覆盖 remote ======
+  // 这样你本地编辑后刷新也能看到最新内容，同时部署的 notes.json 也有数据
+  if (remoteNotes.length > 0 && localNotes.length === 0) {
+    // 有远程数据但没有本地数据（第一次访问部署版）→ 直接用远程数据
+    notes.value = remoteNotes
+    saveNotes()  // 同步到 localStorage
+  } else if (remoteNotes.length > 0 && localNotes.length > 0) {
+    // 两边都有 → 以本地为准（本地是你编辑过的），但新增的远程笔记也保留
+    const localIds = new Set(localNotes.map((n) => n.id))
+    const merged = [...localNotes]
+    // 把远程有但本地没有的笔记加进来
+    for (const n of remoteNotes) {
+      if (!localIds.has(n.id)) merged.push(n)
+    }
+    notes.value = merged
+    saveNotes()
+  } else {
+    // 没有远程数据 → 纯本地模式
+    notes.value = localNotes
+  }
+
+  // ====== 4. 兼容旧数据：没有 module 字段的笔记补上默认分类 ======
   let needSave = false
   notes.value.forEach((n) => {
     if (!n.module) {
       n.module = DEFAULT_MODULE
-      needSave = true // 有改动才保存，避免无意义的写操作
+      needSave = true
     }
   })
   if (needSave) saveNotes()
 
-  // ====== 3. 有笔记 → 初始化侧栏 + 选中 ======
+  // ====== 5. 有笔记 → 初始化侧栏 + 选中 ======
   if (notes.value.length > 0) {
-    // 收集所有模块名，全部展开
     const set = new Set()
     notes.value.forEach((n) => set.add(n.module || DEFAULT_MODULE))
     expandedModules.value = set
-    // 默认选中第一条
     selectedNoteId.value = notes.value[0].id
-    // 如果是编辑模式，把内容装进编辑器
     if (editMode.value) {
       nextTick(() => {
         if (editorRef.value && selectedNote.value)
@@ -806,8 +841,7 @@ onMounted(() => {
     }
   }
 
-  // ====== 4. 恢复编辑模式状态 ======
-  // 如果上次关闭时是编辑模式，这次打开也保持编辑模式
+  // ====== 6. 恢复编辑模式状态 ======
   editMode.value = localStorage.getItem(STORAGE_EDITMODE) === 'true'
 
   // ====== 5. 页面关闭/刷新前做最后一次保存 ======
