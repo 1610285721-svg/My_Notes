@@ -661,7 +661,7 @@ function onEditorInput() {
  * compressImage —— 用 Canvas 压缩图片
  * 一张 2MB 的截图能压到约 50KB，大幅节省 localStorage 空间
  * maxWidth=1200：宽最多 1200px，超出等比缩小
- * quality=0.6：JPEG 质量 60%，截图够清晰
+ * quality=0.8：JPEG 质量 80%，截图够清晰
  */
 function compressImage(file) {
   return new Promise((resolve) => {
@@ -682,7 +682,7 @@ function compressImage(file) {
         canvas.width = width; canvas.height = height
         const ctx = canvas.getContext('2d')
         ctx.drawImage(img, 0, 0, width, height)
-        resolve(canvas.toDataURL('image/jpeg', 0.6))
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
       }
       img.src = e.target?.result
     }
@@ -735,7 +735,7 @@ function insertImage() {
 async function compressAllImages() {
   try {
     await ElMessageBox.confirm(
-      '将遍历所有笔记中的图片并重新压缩（宽≤1200px，JPEG 质量 60%），继续？',
+      '将遍历所有笔记中的图片并重新压缩（宽≤1200px，JPEG 质量 80%），继续？',
       '批量压缩图片',
       { confirmButtonText: '开始压缩', cancelButtonText: '取消', type: 'info' }
     )
@@ -763,7 +763,7 @@ async function compressAllImages() {
             const canvas = document.createElement('canvas')
             canvas.width = width; canvas.height = height
             canvas.getContext('2d').drawImage(image, 0, 0, width, height)
-            img.src = canvas.toDataURL('image/jpeg', 0.6)
+            img.src = canvas.toDataURL('image/jpeg', 0.8)
             count++
             resolve()
           }
