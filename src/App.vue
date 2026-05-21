@@ -125,6 +125,9 @@
             <el-button size="small" @click="insertImage">
               <el-icon><Picture /></el-icon> 插入图片
             </el-button>
+            <el-button size="small" type="warning" @click="compressAllImages">
+              压缩已有图片
+            </el-button>
             <span class="save-status">{{ saving ? '保存中…' : '已自动保存' }}</span>
           </div>
           <div
@@ -654,27 +657,53 @@ function onEditorInput() {
  * 普通文本粘贴由浏览器默认行为处理（contenteditable 自带）
  * 用 FileReader 把图片 Blob 转成 base64 字符串，存进 localStorage
  */
+/*
+ * compressImage —— 用 Canvas 压缩图片
+ * 一张 2MB 的截图能压到约 50KB，大幅节省 localStorage 空间
+ * maxWidth=1200：宽最多 1200px，超出等比缩小
+ * quality=0.6：JPEG 质量 60%，截图够清晰
+ */
+function compressImage(file) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve(e.target?.result)
+      reader.readAsDataURL(file)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        const maxWidth = 1200
+        if (width > maxWidth) { height = Math.round(height * (maxWidth / width)); width = maxWidth }
+        const canvas = document.createElement('canvas')
+        canvas.width = width; canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', 0.6))
+      }
+      img.src = e.target?.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 function onPaste(event) {
   if (!selectedNote.value) return
-  // clipboardData.items：剪贴板的所有内容项
   const items = event.clipboardData?.items
   if (!items) return
   for (const item of items) {
-    // type 以 'image/' 开头说明是图片
     if (item.type.startsWith('image/')) {
-      event.preventDefault() // 阻止浏览器默认粘贴（防止插入 blob URL）
-      const file = item.getAsFile() // 把剪贴板的图片数据读成 File 对象
+      event.preventDefault()
+      const file = item.getAsFile()
       if (!file) continue
-      const reader = new FileReader()
-      // onload：文件读取完成后触发，e.target.result 是 base64 字符串
-      reader.onload = (e) => {
-        insertImageAtCursor(e.target?.result) // 插入 <img> 到光标位置
-        // 手动触发 input 事件，让 onEditorInput 同步内容和保存
+      compressImage(file).then((base64) => {
+        insertImageAtCursor(base64)
         editorRef.value?.dispatchEvent(new Event('input', { bubbles: true }))
-      }
-      // readAsDataURL：把文件读成 base64 格式的 Data URL
-      reader.readAsDataURL(file)
-      break // 只处理第一张图片
+      })
+      break
     }
   }
 }
@@ -685,26 +714,77 @@ function onPaste(event) {
  * 用户选完图片后，用 FileReader 转成 base64，插入到编辑器光标位置
  */
 function insertImage() {
-  if (!selectedNote.value) {
-    ElMessage.warning('请先选择或创建一个笔记')
-    return
-  }
-  // 动态创建文件选择器
+  if (!selectedNote.value) { ElMessage.warning('请先选择或创建一个笔记'); return }
   const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*' // 只接受图片类型的文件
-  // onchange：用户选择文件后触发
+  input.type = 'file'; input.accept = 'image/*'
   input.onchange = () => {
-    const file = input.files?.[0] // 取第一张选中的图片
+    const file = input.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      insertImageAtCursor(e.target?.result) // 插入 <img> 到光标位置
+    compressImage(file).then((base64) => {
+      insertImageAtCursor(base64)
       editorRef.value?.dispatchEvent(new Event('input', { bubbles: true }))
-    }
-    reader.readAsDataURL(file) // 转成 base64
+    })
   }
-  input.click() // 弹出文件选择对话框
+  input.click()
+}
+
+/*
+ * compressAllImages —— 遍历所有笔记，用 Canvas 重新压缩里面的每一张 Base64 图片
+ * 会先显示压缩前的体积，确认后执行，完成后显示压缩前后的对比
+ */
+async function compressAllImages() {
+  try {
+    await ElMessageBox.confirm(
+      '将遍历所有笔记中的图片并重新压缩（宽≤1200px，JPEG 质量 60%），继续？',
+      '批量压缩图片',
+      { confirmButtonText: '开始压缩', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch { return /* 取消 */ }
+
+  const before = JSON.stringify(notes.value).length
+  let count = 0
+  const allPromises = []  // 收集所有异步任务
+
+  for (const note of notes.value) {
+    const div = document.createElement('div')
+    div.innerHTML = note.content
+    const imgs = div.querySelectorAll('img')
+    if (imgs.length === 0) continue
+
+    const notePromises = []
+    for (const img of imgs) {
+      if (img.src.startsWith('data:image/')) {
+        const p = new Promise((resolve) => {
+          const image = new Image()
+          image.onload = () => {
+            let { width, height } = image
+            const maxWidth = 1200
+            if (width > maxWidth) { height = Math.round(height * (maxWidth / width)); width = maxWidth }
+            const canvas = document.createElement('canvas')
+            canvas.width = width; canvas.height = height
+            canvas.getContext('2d').drawImage(image, 0, 0, width, height)
+            img.src = canvas.toDataURL('image/jpeg', 0.6)
+            count++
+            resolve()
+          }
+          image.src = img.src
+        })
+        notePromises.push(p)
+      }
+    }
+
+    // 每篇笔记的图片压缩完成后更新 content
+    const noteDone = Promise.all(notePromises).then(() => { note.content = div.innerHTML })
+    allPromises.push(noteDone)
+  }
+
+  // 等所有笔记的图片都处理完 → 保存
+  await Promise.all(allPromises)
+  saveNotes()
+  const after = JSON.stringify(notes.value).length
+  const mbBefore = (before / 1024 / 1024).toFixed(2)
+  const mbAfter = (after / 1024 / 1024).toFixed(2)
+  ElMessage.success(`压缩完成！${mbBefore}MB → ${mbAfter}MB，共 ${count} 张图片`)
 }
 
 /*
